@@ -81,10 +81,17 @@ def tests(test_category=r''):
 
 
 def remove_output(notebook):
+    """
+    Removes the output cells of the specified notebook, given as a file path.
+    """
     subprocess.run(f'jupyter nbconvert "{notebook}" --clear-output --inplace',
                    shell=True)
 
 def remove_empty_cells(notebook):
+    """
+    Removes the cells containing only whitespace or newlines of the
+    specified notebook, given as a file path.
+    """
     with open(notebook, 'r') as f:
         content = nbformat.reads(f.read(), as_version=4)
 
@@ -103,7 +110,7 @@ if __name__ == "__main__":
         print(usage_message)
         exit()
 
-    # Check if in the CodeGrade enviroment.
+    # Check if the script is run in the CodeGrade enviroment.
     if sys.argv[1] in ["solutions", "hand-in"] and not "UPLOADED_FILES" in os.environ:
         print(usage_message)
         exit()
