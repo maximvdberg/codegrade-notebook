@@ -7,8 +7,8 @@ import nbconvert, nbformat
 weight, name, description = [lambda x: lambda x: 0]*3
 
 # Delimiter definitions.
-start = "### BEGIN"
-end = "### END"
+start = "#!# BEGIN"
+end = "#!# END"
 
 usage_message = f"""Normal usage:
   Remove the SOLUTION and TESTS blocks from the solution notebook, and saves the result in the student notebook:
@@ -40,9 +40,9 @@ def remove_solutions(content, replace=r''):
     Replaces all solution blocks from `content` with `replace`.
 
     Solution blocks in `content` are constructed as follows:
-        ### BEGIN SOLUTION
+        #=# BEGIN SOLUTION
         ...
-        ### END SOLUTION
+        #=# END SOLUTION
     """
 
     regex = rf'{start} SOLUTION(?!`)[\s\S]*?{end} SOLUTION'
@@ -54,9 +54,9 @@ def remove_tests(content, exclude=r'', replace=r''):
     set category equals the `exclude` parameter.
 
     Test blocks in `content` are constructed as follows:
-        ### BEGIN [category name] TESTS
+        #=# BEGIN [category name] TESTS
         ...
-        ### END [category name] TESTS
+        #=# END [category name] TESTS
 
     Examples of categories are "VISIBLE", "HIDDEN", or user-defined categories.
     """
@@ -103,6 +103,14 @@ def remove_empty_cells(notebook):
         f.write(nbformat.writes(content))
 
 
+def remove_ipython_functions(py_file):
+    """
+    Removes Notebook/IPython specific functions from the given .py files, such as
+    `display()` (replaced by `print`) and `ipython_get` (made into a comment).
+    """
+    # subprocess.run(f'sed -i "s/display/print/g" {py_file}', shell=True)
+    subprocess.run(f'sed -i "s/get_ipython/#get_ipython/g" {py_file}', shell=True)
+
 if __name__ == "__main__":
     # Check for correct input.
     if len(sys.argv) < 2 or (sys.argv[1] in ["assignment", "remove-tests"]
@@ -123,7 +131,7 @@ if __name__ == "__main__":
 
         # Remove solutions and tests and write to file.
         with open(sys.argv[3], 'w') as f:
-            content = remove_solutions(content, "# Your code here...")
+            content = remove_solutions(content, "#. Your solution here ...")
             content = remove_tests(content)
             f.write(content)
 
@@ -134,9 +142,6 @@ if __name__ == "__main__":
         uploaded_files = os.environ["UPLOADED_FILES"]
         # notebook = glob.glob(f"{uploaded_files}/*.ipynb")[0]
 
-        print("dirname", os.path.dirname(os.path.abspath(__file__)))
-        print("cwd", os.path.abspath(os.getcwd()))
-
         # Rename the solution notebook.
         notebook = glob.glob(f"{uploaded_files}/*.ipynb")[0]
         os.rename(notebook, f"{uploaded_files}/solutions.ipynb")
@@ -144,8 +149,7 @@ if __name__ == "__main__":
         # Convert solutions notebook to a .py file.
         subprocess.run(f'jupyter nbconvert --to python {uploaded_files}/solutions.ipynb', shell=True)
 
-        # Remove notebook 'display' functions.
-        subprocess.run(f'sed -i "s/display/print/g" {uploaded_files}/solutions.py', shell=True)
+        remove_ipython_functions(f"{uploaded_files}/solutions.py")
 
     elif sys.argv[1] == "hand-in":
         uploaded_files = os.environ["UPLOADED_FILES"]
@@ -155,8 +159,14 @@ if __name__ == "__main__":
         os.rename(notebook, "student.ipynb")
         subprocess.run('jupyter nbconvert --to python student.ipynb', shell=True)
 
-        # Remove notebook 'display' functions.
-        subprocess.run('sed -i "s/display/print/g" student.py', shell=True)
+        remove_ipython_functions("student.py")
+
+        # Remove any tests (from the test submission specifically).
+        with open("student.py", 'r' ) as f:
+            content = f.read()
+        with open("student.py", 'w') as f:
+            content = remove_tests(content)
+            f.write(content)
 
         # Copy solutions and prepare files.
         os.rename(f'{uploaded_files}/solutions.py', 'solutions.py')
