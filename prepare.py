@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import sys, os, re, glob, subprocess, pkgutil
+import sys, os, re, glob, subprocess
 import nbconvert, nbformat
 
 # Dummy definitions to suppress errors in the notebook.
@@ -40,9 +40,9 @@ def remove_solutions(content, replace=r''):
     Replaces all solution blocks from `content` with `replace`.
 
     Solution blocks in `content` are constructed as follows:
-        #=# BEGIN SOLUTION
+        #!# BEGIN SOLUTION
         ...
-        #=# END SOLUTION
+        #!# END SOLUTION
     """
 
     regex = rf'{start} SOLUTION(?!`)[\s\S]*?{end} SOLUTION'
@@ -54,9 +54,9 @@ def remove_tests(content, exclude=r'', replace=r''):
     set category equals the `exclude` parameter.
 
     Test blocks in `content` are constructed as follows:
-        #=# BEGIN [category name] TESTS
+        #!# BEGIN [category name] TESTS
         ...
-        #=# END [category name] TESTS
+        #!# END [category name] TESTS
 
     Examples of categories are "VISIBLE", "HIDDEN", or user-defined categories.
     """
@@ -71,7 +71,7 @@ def tests(test_category=r''):
     In a Pytest step, write:
 
         import prepare
-        exec(prepare.tests([test category]))
+        exec(prepare.tests("TEST_CATEGORY"))
 
     """
     with open("solutions.py", 'r') as f:
@@ -103,13 +103,54 @@ def remove_empty_cells(notebook):
         f.write(nbformat.writes(content))
 
 
-def remove_ipython_functions(py_file):
+
+def convert_student_notebook(notebook, py_file):
     """
-    Removes Notebook/IPython specific functions from the given .py files, such as
+    Convert the given notebook to a student.py file, in a cell-by-cell manner.
+    Cells are only added if they do not produce an error after running them.
+    Uses nbval for validation.
+    """
+    print("Running notebook validation (just checking if everything runs properly)")
+    # Validate the notebook using nbval.
+    validate = subprocess.run(["pytest", "--nbval-lax", notebook], capture_output=True)
+    results = validate.stdout.decode()
+    errors = re.findall(fr"^{notebook} [\.F]+", results, re.MULTILINE)[0].replace(notebook + " ", "")
+
+    # Remove ANSI colors and print results.
+    # From: https://stackoverflow.com/questions/14693701/how-can-i-remove-the-ansi-escape-sequences-from-a-string-in-python.
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    print(ansi_escape.sub('', results))
+
+    # Read the jupyter notebook.
+    with open(notebook, 'r') as f:
+        nb = nbformat.reads(f.read(), as_version=4)
+
+    # Create the .py source, ignoring cells with errors.
+    cells = [cell for cell in nb.cells if cell['cell_type'] == 'code']
+    source = "\n\n".join(cell.source for i, cell in enumerate(cells) if errors[i] != "F")
+
+    # Write the final .py file.
+    with open(py_file, 'w') as f:
+        f.write(source)
+
+
+def remove_ipython_functions(file):
+    """
+    Removes Notebook/IPython specific functions from the given file, such as
     `display()` (replaced by `print`) and `ipython_get` (made into a comment).
     """
-    # subprocess.run(f'sed -i "s/display/print/g" {py_file}', shell=True)
-    subprocess.run(f'sed -i "s/get_ipython/#get_ipython/g" {py_file}', shell=True)
+    # Remove display functions.
+    subprocess.run(fr'sed -i "s/display(/print(/g" {file}', shell=True)
+
+    # Remove 'notebook magic'.
+    subprocess.run(f'sed -i "s/#%matplotlib inline/#%matplotlib inline/g" {file}', shell=True)
+    subprocess.run(f'sed -i "s/^%/#%/g" {file}', shell=True)
+    subprocess.run(fr'sed -i "s/\\n%/\\n#%/g" {file}', shell=True)
+    subprocess.run(fr"sed -i 's/^\s*\"%/\"#%/g' {file}", shell=True)
+    subprocess.run(f'sed -i "s/get_ipython/#get_ipython/g" {file}', shell=True)
+
+
+
 
 if __name__ == "__main__":
     # Check for correct input.
@@ -157,9 +198,9 @@ if __name__ == "__main__":
 
         # Rename the student notebook and convert it to a .py file.
         os.rename(notebook, "student.ipynb")
-        subprocess.run('jupyter nbconvert --to python student.ipynb', shell=True)
 
-        remove_ipython_functions("student.py")
+        remove_ipython_functions("student.ipynb")
+        convert_student_notebook("student.ipynb", "student.py")
 
         # Remove any tests (from the test submission specifically).
         with open("student.py", 'r' ) as f:
@@ -189,3 +230,45 @@ if __name__ == "__main__":
 
     else:
         print(usage_message)
+
+
+# Paste the following code in your notebook to check tests locally:
+"""
+#!# BEGIN REMOVE_FOR TESTS
+class Student():
+    def __init__(self):
+        for key, value in globals().items():
+            if callable(value) and value.__module__ == "__main__":
+                exec(f"self.{key} = {key}")
+student = None
+
+def weight(w):
+    global student
+    student = Student()
+    def decorator(func):
+        print("weight: \t", w)
+        func()
+        print("Test OK\n")
+        def inner():
+            pass
+        return inner
+    return decorator
+
+def name(name):
+    def decorator(func):
+        def inner():
+            print("name: \t\t", name)
+            func()
+        return inner
+    return decorator
+
+def description(d):
+    def decorator(func):
+        def inner():
+            print("description: \t", d)
+            func()
+        return inner
+    return decorator
+
+#!# END REMOVE_FOR TESTS
+"""
